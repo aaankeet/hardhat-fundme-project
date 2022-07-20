@@ -1,65 +1,64 @@
-// SPDX-License-Identifier: MIT
-// 1. Pragma
-pragma solidity ^0.8.0;
-// 2. Imports
+//SPDX-License-Identifier: MIT
+
+//Pragma
+pragma solidity ^0.8.8;
+
+//imports
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "./PriceConverter.sol";
 
-// 3. Interfaces, Libraries, Contracts
+//errors
 error FundMe__NotOwner();
+error failed();
 
-/**@title A sample Funding Contract
- * @author Patrick Collins
- * @notice This contract is for creating a sample funding contract
- * @dev This implements price feeds as our library
- */
 contract FundMe {
-    // Type Declarations
-    using PriceConverter for uint256;
-
-    // State variables
-    uint256 public constant MINIMUM_USD = 50 * 10**18;
     address private immutable i_owner;
-    address[] private s_funders;
-    mapping(address => uint256) private s_addressToAmountFunded;
+    // 790,612 gas - immutable
+
+    using PriceConverter for uint256; //using library for uint25
+
+    uint256 public constant minimumUSD = 50 * 1e18; // 5*10**18 ==  50000000000000000000
+
+    // 832,883 gas non-constant
+    // 813,587 gas constant
+
     AggregatorV3Interface private s_priceFeed;
 
-    // Events (we have none!)
+    address[] private s_funders; // list of people who funded
+    mapping(address => uint256) private s_addressToAmountFunded; // to track users how much they funded
 
-    // Modifiers
     modifier onlyOwner() {
-        // require(msg.sender == i_owner);
-        if (msg.sender != i_owner) revert FundMe__NotOwner();
+        // require(msg.sender == i_owner, "You're Not the Owner");
+        if (msg.sender != i_owner) {
+            revert FundMe__NotOwner();
+        }
         _;
     }
 
-    // Functions Order:
-    //// constructor
-    //// receive
-    //// fallback
-    //// external
-    //// public
-    //// internal
-    //// private
-    //// view / pure
-
-    constructor(address priceFeed) {
-        s_priceFeed = AggregatorV3Interface(priceFeed);
+    constructor(address priceFeedAddress) {
         i_owner = msg.sender;
+        s_priceFeed = AggregatorV3Interface(priceFeedAddress);
     }
 
-    /// @notice Funds our contract based on the ETH/USD price
+    // if someone sends ETH without calling fund function
+    receive() external payable {
+        fund();
+    }
+
+    fallback() external payable {
+        fund();
+    }
+
     function fund() public payable {
         require(
-            msg.value.getConversionRate(s_priceFeed) >= MINIMUM_USD,
-            "You need to spend more ETH!"
+            msg.value.getConversionRate(s_priceFeed) >= minimumUSD,
+            "You Need to Spend More ETH"
         );
-        // require(PriceConverter.getConversionRate(msg.value) >= MINIMUM_USD, "You need to spend more ETH!");
-        s_addressToAmountFunded[msg.sender] += msg.value;
-        s_funders.push(msg.sender);
+        s_addressToAmountFunded[msg.sender] = msg.value; // track amount funded by users
+        s_funders.push(msg.sender); // funders added to the array
     }
 
-    function withdraw() public payable onlyOwner {
+    function withdrawFunds() public onlyOwner {
         for (
             uint256 funderIndex = 0;
             funderIndex < s_funders.length;
@@ -68,48 +67,38 @@ contract FundMe {
             address funder = s_funders[funderIndex];
             s_addressToAmountFunded[funder] = 0;
         }
+        // reseting the array
         s_funders = new address[](0);
-        // Transfer vs call vs Send
+        // acutal withdrawl of funds
+
+        // Using transfer function to withdraw eth
         // payable(msg.sender).transfer(address(this).balance);
-        (bool success, ) = i_owner.call{value: address(this).balance}("");
-        require(success);
+
+        // Using send function to withdwar eth
+        // bool sendSuccess = payable(msg.sender).send(address(this).balance);
+        // require(sendSuccess,  "Send Failed");
+
+        // call command to withdraw funds
+        (bool sent, ) = payable(msg.sender).call{value: address(this).balance}(
+            ""
+        );
+        require(sent, "Failed");
     }
 
     function cheaperWithdraw() public payable onlyOwner {
         address[] memory funders = s_funders;
-        // mappings can't be in memory, sorry!
+
         for (
-            uint256 funderIndex = 0;
-            funderIndex < funders.length;
-            funderIndex++
+            uint256 fundersIndex;
+            fundersIndex < s_funders.length;
+            fundersIndex++
         ) {
-            address funder = funders[funderIndex];
+            address funder = funders[fundersIndex];
             s_addressToAmountFunded[funder] = 0;
         }
         s_funders = new address[](0);
-        // payable(msg.sender).transfer(address(this).balance);
         (bool success, ) = i_owner.call{value: address(this).balance}("");
         require(success);
-    }
-
-    /** @notice Gets the amount that an address has funded
-     *  @param fundingAddress the address of the funder
-     *  @return the amount funded
-     */
-    function getAddressToAmountFunded(address fundingAddress)
-        public
-        view
-        returns (uint256)
-    {
-        return s_addressToAmountFunded[fundingAddress];
-    }
-
-    function getVersion() public view returns (uint256) {
-        return s_priceFeed.version();
-    }
-
-    function getFunder(uint256 index) public view returns (address) {
-        return s_funders[index];
     }
 
     function getOwner() public view returns (address) {
@@ -118,5 +107,17 @@ contract FundMe {
 
     function getPriceFeed() public view returns (AggregatorV3Interface) {
         return s_priceFeed;
+    }
+
+    function getFunders(uint256 index) public view returns (address) {
+        return (s_funders[index]);
+    }
+
+    function getAddressToAmountFunded(address funder)
+        public
+        view
+        returns (uint256)
+    {
+        return s_addressToAmountFunded[funder];
     }
 }
