@@ -1,9 +1,9 @@
 .encryptedKey.json
 node_modules
 .env.example
-coverage
 coverage.json
 typechain
+coverage
 
 #Hardhat files
 cache
